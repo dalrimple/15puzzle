@@ -130,7 +130,7 @@
 				var tileWithGutter = tileSize + gutter;
 
 				//Variables
-				var gridSize, gridLength, tileList, grid, animDelay, randomAnimDelay;
+				var grid, gridSize, gridLength, xyList, tileList, animDelay, randomAnimDelay;
 				var randomizing = false;
 				var solving = false;
 				var blockingAction = undefined;
@@ -145,9 +145,14 @@
 				 * @return	{x:integer, y:integer}
 				 */
 				function getXYFromIndex(index) {
+					if (xyList[index] !== undefined) { // return xy from cache if it exists
+						return xyList[index];
+					}
+					// else create the xy object and put it into the cache before returning it.
 					var xy = {};
 					xy.x = index % gridSize;
 					xy.y = Math.floor(index / gridSize);
+					xyList[index] = xy;
 					return xy;
 				}
 
@@ -261,9 +266,10 @@
 				 * @property	active 		True of false lets the function continue or stop. It is stored on the randomize function to keep parent scope clean 
 				 */
 				function randomize(avoidXY1, avoidXY2) {
+					// These two points describe a square area of the board that is not to be randomized. Used for dev.
 					avoidXY1 || (avoidXY1 = {x: -1, y: -1});
 					avoidXY2 || (avoidXY2 = {x: -1, y: -1});
-					// Create the avoidList
+					// Create the avoidList from the two avoid points.
 					var avoidList = [];
 					var i, xy;
 					for (i = 0; i < gridLength; i++) {
@@ -274,6 +280,9 @@
 					var emptyIndex = grid.indexOf(-1);
 					var prevDir = {x:0, y:0}; // The previous random movement direction is stored to prevent backtracking
 					var iterator = function() { // Is run in a timer function for each random movement
+						if (!randomizing) { // Check if the randomize action is still active as set by toggleRandomize
+							return;
+						}
 						var nextDirOptions = [];
 						var nextIndexOptions = [];
 						var i, adjacentIndex, nextDir, nextIndex, randIndex;
@@ -294,10 +303,8 @@
 						prevDir = nextDirOptions[randIndex];
 						slideTile(nextIndex, emptyIndex);
 						emptyIndex = nextIndex; // Get the emptyIndex value ready for the next iteration.
-						//Check if the randomize action is still active as set by toggleRandomize, and iterate after the animation finishes.
-						if (randomizing) {
-							setTimeout(iterator, randomAnimDelay);
-						}
+						// Iterate after enough time for the animation to finish.
+						setTimeout(iterator, randomAnimDelay);
 					};
 					iterator();
 				}
@@ -778,6 +785,7 @@
 				function setupBoard(newSize) {
 					newSize = Math.max(2, newSize); // Gridsizes less than 2 are non-sensical. Even 2 is kind of pointless.
 					tileList = []; // Where jquery references to tile dom elements are stored.
+					xyList = []; // Cache of xy positions for each grid index.
 					gridSize = newSize;
 					gridLength = gridSize * gridSize;
 					grid = (function() { //Generate an array that houses the value of the positions in the 4X4 grid
