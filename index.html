@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>15 Puzzle Solver</title>
+		<meta http-equiv='Content-Type' content='text/html; charset=UTF-8'>
+		<meta http-equiv='Content-Language' content='en'>
+		<meta name='Author' content='Daniel Zabinskas, daniel@zabinskas.com'>
+		<link href='http://fonts.googleapis.com/css?family=Vollkorn' rel='stylesheet' type='text/css'>
+		<style type='text/css'>
+			body {
+				padding: 0 0 1em 0;
+				margin: 0;
+			}
+			body, input {
+				font-family: 'Vollkorn', 'Helvetica', sans-serif;
+				font-weight: lighter;
+				font-size: 1.5em;
+				text-align: center;
+				overflow-x: hidden;
+			}
+			h1 {
+				margin: 0 0 0 -50%;
+				padding: 0.4em 0 0.35em 0;
+				background-color: #ffbd0c;
+				width: 200%;
+				color: #FFFFFF;
+				text-shadow: 0px 0px 10px rgba(255, 255, 255, 0.5);
+				-webkit-box-shadow: inset 0px -7px 35px 0px rgba(0, 0, 0, 0.1);
+				box-shadow: inset 0px -7px 35px 0px rgba(0, 0, 0, 0.1);
+			}
+
+			#board {
+				display: inline-block;
+				vertical-align: top;
+				position: relative;
+				overflow: hidden;
+				margin: 1.2em 0 1.2em 0;
+				background-color: #666666;
+				border-radius: 0.4em;
+				-webkit-transition: background-color 500ms cubic-bezier(0.7, 0, 0.2, 1);
+				-moz-transition: background-color 500ms cubic-bezier(0.7, 0, 0.2, 1);
+				-o-transition: background-color 500ms cubic-bezier(0.7, 0, 0.2, 1);
+				transition: background-color 500ms cubic-bezier(0.7, 0, 0.2, 1);
+				-webkit-box-shadow:  0px 4px 10px 0px rgba(0, 0, 0, 0.2);
+				box-shadow:  0px 4px 25px 0px rgba(0, 0, 0, 0.14);
+			}
+			#board.ordered {
+				background-color: #ffbd0c;
+			}
+			.tile {
+				background-color: #FFFFFF;
+				position: absolute;
+				width: 3em;
+				height: 3em;
+				border-radius: 0.25em;
+				text-align: center;
+				line-height: 3em;
+				color: #666666;
+				-webkit-user-select: none;
+				-moz-user-select: none;
+				user-select: none;
+			}
+			.tile.animated {
+				cursor: default;
+				-webkit-transition: all 300ms cubic-bezier(0.7, 0, 0.2, 1);
+				-moz-transition: all 300ms cubic-bezier(0.7, 0, 0.2, 1);
+				-o-transition: all 300ms cubic-bezier(0.7, 0, 0.2, 1);
+				transition: all 300ms cubic-bezier(0.7, 0, 0.2, 1);
+			}
+
+			input[type=button], input[type=tel] {
+				-webkit-appearance: none;
+				font-size: 1em;
+				border-radius: 0.4em;
+				border: none;
+				margin: 0;
+				padding: 0.5em 1em;
+				outline: none;
+				text-align: center;
+			}
+
+			input[type=button] {
+				cursor: pointer;
+				margin: 0.25em 0 0.25em 0;
+				background-color: #ffbd0c;
+				color: #FFFFFF;
+				-webkit-transition: background-color 150ms cubic-bezier(0.7, 0, 0.2, 1);
+				-moz-transition: background-color 150ms cubic-bezier(0.7, 0, 0.2, 1);
+			}
+			input[type=tel] {
+				background-color: #FFFFFF;
+				margin: 0.25em 0;
+				color: #ffbd0c;
+			}
+			input[type=button].active, input[type=button]:active {
+				background-color: #666666;
+			}
+
+			#options {
+				border-radius: 0.4em;
+				background-color: #666666;
+				display: inline-block;
+				vertical-align: top;
+				text-align: left;
+			}
+			label {
+				width: 6em;
+				font-size: 1em;
+				color: #FFFFFF;
+				padding: 0;
+				margin: 0.25em 0.25em 0.25em 0.25em;
+			}
+		</style>
+		<script type='text/javascript' src='http://ajax.googleapis.com/ajax/libs/jquery/2.0.0/jquery.min.js'></script>
+		<script type='text/javascript'>
+			
+			$(document).ready(function() {
+				//Constants
+				var $board = $('#board');
+				var $tileTemplate = $('.tile').first().remove();
+				var $randomButton = $('input[name=randomize]');
+				var $solveButton = $('input[name=solve]');
+				var $optionsButton = $('input[name=options]');
+				var $gridSizeInput = $('input[name=gridsize]');
+				var $randomSpeedInput = $('input[name=randomspeed]');
+				var $solveSpeedInput = $('input[name=solvespeed]');
+				var trbl = [{x:0, y:-1}, {x:1, y:0}, {x:0, y:1}, {x:-1, y:0}];
+				var tileSize = 3; //From the CSS. each tile is 3em wide and high
+				var gutter = 0.25; //From the CSS. The board is wide enough to cater for tiles 3em wide with a gutter of 0.25em
+				var tileWithGutter = tileSize + gutter;
+
+				//Variables
+				var gridSize, gridLength, tileList, grid, animDelay, randomAnimDelay;
+				var randomizing = false;
+				var solving = false;
+				var blockingAction = undefined;
+
+				/////////////////////////
+				// GRID DATA FUNCTIONS //
+				/////////////////////////
+
+				/**
+				 * Function to find x and y position from an index value of the grid
+				 * @param		index 	grid index
+				 * @return	{x:integer, y:integer}
+				 */
+				function getXYFromIndex(index) {
+					var xy = {};
+					xy.x = index % gridSize;
+					xy.y = Math.floor(index / gridSize);
+					return xy;
+				}
+
+				/**
+				 * Function to see if the tiles are in order. Called by the hiliteBoard() function 
+				 * @returns	True or false when the tiles are in order or not.
+				 */
+				function areTilesInOrder() {
+					var i, l;
+					var inOrder = true;
+					for (i = 1, l = gridLength - 1; i < l; i++) {
+						if (grid[i - 1] > grid[i]) {
+							inOrder = false;
+							break;
+						}
+					}
+					return inOrder;
+				}
+
+				/**
+				 * Function to find the status of the slot above, below or to the left or right of a tile
+				 * @param	gridIndex	The grid index of the position querying its surroundings
+				 * @param	x 				The direction to move horizontally. either -1, 0 or 1
+				 * @param	y 				The direction to move vertically. either -1, 0 or 1
+				 */
+				function validateSlide(gridIndex, emptyIndex) {
+					if (blockingAction === undefined) {
+						return false;
+					}
+					var currentXY = getXYFromIndex(gridIndex);
+					var emptyXY = getXYFromIndex(emptyIndex);
+					var deltaXY = {x: emptyXY.x - currentXY.x, y: emptyXY.y - currentXY.y};
+					// Check if the distance in any direction is greater than 1 or that the empty tile is adjacent but on a corner.
+					if (Math.abs(deltaXY.x) > 1 || Math.abs(deltaXY.y) > 1 || Math.abs(deltaXY.x + deltaXY.y) !== 1) {
+						return false;
+					}
+					return true;
+				}
+
+				/**
+				 * Function to find the index of the slot above, below or to the left or right of a tile
+				 * @param	gridIndex	The grid index of the position querying its surroundings
+				 * @param	x 			The direction to move horizontally. either -1, 0 or 1
+				 * @param	y 			The direction to move vertically. either -1, 0 or 1
+				 */
+				function getAdjacentSlotIndex(gridIndex, x, y) {
+					// Check if the adjacent slot is off the board horizontally
+					var h = (gridIndex % gridSize) + x;
+					if (h < 0 || h >= gridSize) return undefined;
+					// Check if the adjacent slot is off the board vertically
+					var queryIndex = gridIndex + x + y * gridSize;
+					if (queryIndex < 0 || queryIndex >= gridLength) return undefined;
+					return queryIndex;
+				}
+
+				/**
+				 * Function to slide a tile into the available slot if it can.
+				 * @param	gridIndex	index in the grid array. (use x + y * gridSize to get an index from x & y)
+				 * @param	callback	function to be called after a delay long enough to allow the transition animation
+				 */
+				function slideTile(gridIndex, emptyIndex, callback) {
+					if (validateSlide(gridIndex, emptyIndex)) {
+						var $tile = tileList[grid[gridIndex]];
+						var moveXY = getXYFromIndex(emptyIndex);
+						var temp = grid[gridIndex];
+						grid[gridIndex] = grid[emptyIndex];
+						grid[emptyIndex] = temp;
+						moveTileTo($tile, moveXY.x, moveXY.y);
+						if (callback) {
+							setTimeout(callback, animDelay);
+						}
+					}
+				}
+
+				///////////////
+				// RANDOMIZE //
+				///////////////
+
+				/**
+				 * Function to start and stop randomizing the board
+				 * @return	true or false if the board is randomizing or not
+				 */
+				function toggleRandomize(force) {
+					if (blockingAction !== undefined && blockingAction !== 'randomizing') {
+						return;
+					}
+					if (force !== void 0) {
+						randomizing = force;
+					} else {
+						randomizing = !randomizing; //relies on the fact that !(undefined) === true;
+					}
+					if (randomizing) {
+						hiliteBoard(false);
+						blockingAction = 'randomizing';
+						$randomButton.addClass('active');
+						randomize(); //Randomize whole grid;
+						// randomize({x:0, y:0}, {x: gridSize - 3, y: gridSize - 3}); //Randomize only the 2 right colunms and 2 bottom rows.
+					} else {
+						$randomButton.removeClass('active');
+						blockingAction = undefined;
+					}
+				}
+
+				/**
+				 * Function to randomize the board
+				 * The avoidXY 1 and 2 points defined a square region not to randomize
+				 * ie {x:0, y:0} & {x:2: y:2} would avoid randomizing the 4 tiles in the top left of the grid.
+				 * @param			avoidXY1	The first xy coordinate of the area not to randomize
+				 * @param			avoidXY2	The second xy coordinate of the area not to randomize
+				 * there is a property of the randomize function:
+				 * @property	active 		True of false lets the function continue or stop. It is stored on the randomize function to keep parent scope clean 
+				 */
+				function randomize(avoidXY1, avoidXY2) {
+					avoidXY1 || (avoidXY1 = {x: -1, y: -1});
+					avoidXY2 || (avoidXY2 = {x: -1, y: -1});
+					// Create the avoidList
+					var avoidList = [];
+					var i, xy;
+					for (i = 0; i < gridLength; i++) {
+						xy = getXYFromIndex(i);
+						avoidList[i] = (xy.x >= avoidXY1.x && xy.x <= avoidXY2.x && xy.y >= avoidXY1.y && xy.y <= avoidXY2.y);
+					}
+					
+					var emptyIndex = grid.indexOf(-1);
+					var prevDir = {x:0, y:0}; // The previous random movement direction is stored to prevent backtracking
+					var iterator = function() { // Is run in a timer function for each random movement
+						var nextDirOptions = [];
+						var nextIndexOptions = [];
+						var i, adjacentIndex, nextDir, nextIndex, randIndex;
+						for (i = 0; i < 4; i++) { //trbl (top right bottom left) is a list of the four XY directions of possible movement
+							adjacentIndex = getAdjacentSlotIndex(emptyIndex, trbl[i].x, trbl[i].y);
+							//Ensure the adjacentIndex is a valid move and not in the list of tiles to avoid randomising
+							if (adjacentIndex !== void 0 && !avoidList[adjacentIndex]) {
+								 //Ensure the previous move isn't being reversed. If the direction is opposite, oldDir + newDir will be x:0,y:0
+								if (trbl[i].x + prevDir.x !== 0 || trbl[i].y + prevDir.y !== 0) {
+									nextDirOptions.push(trbl[i]);
+									nextIndexOptions.push(adjacentIndex);
+								}
+							}
+						}
+						//Pick randomly from the valid movement options
+						randIndex = Math.floor(Math.random() * nextDirOptions.length);
+						nextIndex = nextIndexOptions[randIndex];
+						prevDir = nextDirOptions[randIndex];
+						slideTile(nextIndex, emptyIndex);
+						emptyIndex = nextIndex; // Get the emptyIndex value ready for the next iteration.
+						//Check if the randomize action is still active as set by toggleRandomize, and iterate after the animation finishes.
+						if (randomizing) {
+							setTimeout(iterator, randomAnimDelay);
+						}
+					};
+					iterator();
+				}
+
+				////////////
+				// SOLVER //
+				////////////
+
+				/**
+				 * Function to start and stop solving the board
+				 * @return	true or false if the board is being solved or not
+				 */
+				function toggleSolve(force) {
+					if (blockingAction !== undefined && blockingAction !== 'solving') {
+						return;
+					}
+					if (force !== void 0) {
+						solving = force;
+					} else {
+						solving = !solving; //relies on the fact that !(undefined) === true;
+					}
+					if (solving) {
+						blockingAction = 'solving';
+						$solveButton.addClass('active');
+						solveBoard();
+					} else {
+						blockingAction = undefined;
+						$solveButton.removeClass('active');
+					};
+				}
+
+				/**
+				 * Function to solve the board from it's current state. The process breaks the board into 4 zones:
+				 * The top left zone is everything except for the 2 right columns and 2 bottom rows.
+				 * It is easy to sequentially move these tiles into place
+				 * The top right and bottom left zones are solved by sequntially finding pairs of tiles and moving them into place.
+				 * It is a little more complex
+				 * The bottom right is the 2x2 square left after solving the other zones, it's solved with the same process as the top left.
+				 */
+				function solveBoard() {
+					if (blockingAction !== undefined && blockingAction !== 'solving') {
+						return;
+					}
+					var solvedList = (function() { //Generate an array that tracks which tiles have been solved
+						var i;
+						var a = [];
+						for (i = 0; i < gridLength; i++) {
+							a[i] = false;
+						}
+						return a;
+					})();
+
+					var tlGridIndexes = (function() { // List of the top left grid indexes omitting the 2 right columns and 2 bottom rows
+						var a = [];
+						var i, j;
+						var tlSize = gridSize - 2;
+						for (i = 0; i < tlSize; i++) {
+							for (j = 0; j < tlSize; j++) {
+								a.push(j + i * gridSize);
+							}
+						}
+						return a;
+					})();
+
+					var trGridIndexPairs = (function() { // List of the top right grid index pairs omitting the 2 bottom rows.
+						var a = [];
+						var i;
+						var trPair;
+						for (i = 0; i < gridSize - 2; i++) {
+							trPair = [];
+							trPair[0] = (gridSize - 2) + i * gridSize;
+							trPair[1] = (gridSize - 1) + i * gridSize;
+							a.push(trPair);
+						}
+						return a;
+					})();
+
+					var blGridIndexPairs = (function() { // List of the bottom left grid index pairs omitting the 2 right columns.
+						var a = [];
+						var i;
+						var blPair
+						for (i = 0; i < gridSize - 2; i++) {
+							blPair = [];
+							blPair[0] = i + gridSize * (gridSize - 2);
+							blPair[1] = i + gridSize * (gridSize - 1);
+							a.push(blPair);
+						}
+						return a;
+					})();
+
+					var brGridIndexes = []; //List of the bottom right grid indexes that are left. Will only ever be 3 as this section will include the empty square once solved.
+					brGridIndexes.push(gridSize - 2 + (gridSize - 2) * gridSize);
+					brGridIndexes.push(gridSize - 1 + (gridSize - 2) * gridSize);
+					brGridIndexes.push(gridSize - 2 + (gridSize - 1) * gridSize);
+
+					// Solve each zone. The completion of each zone starts the next.
+					function tlSolve() {
+						var tlSolveIndex = tlGridIndexes.shift();
+						var callback;
+						if (tlSolveIndex !== undefined) {
+							// Add a simple check to swap between tlSolve and trSolve so that each row completes before starting the next
+							if (Math.ceil(tlGridIndexes.length / (gridSize - 2)) < trGridIndexPairs.length) {
+								callback = trSolve;
+							} else {
+								callback = tlSolve;
+							}
+							singleTileSolver(tlSolveIndex, callback);
+						} else {
+							trSolve();
+						}
+					}
+					function trSolve() {
+						var trPair = trGridIndexPairs.shift();
+						if (trPair !== undefined) {
+							doubleTileSolver(trPair, 'y', tlSolve);
+						} else {
+							blSolve();
+						}
+					}
+					function blSolve() {
+						var blPair = blGridIndexPairs.shift();
+						if (blPair !== undefined) {
+							doubleTileSolver(blPair, 'x', blSolve);
+						} else {
+							brSolve();
+						}
+					}
+					function brSolve() {
+						var brSolveIndex = brGridIndexes.shift();
+						if (brSolveIndex !== undefined) {
+							singleTileSolver(brSolveIndex, brSolve);
+						} else {
+							hiliteBoard(areTilesInOrder()); // Finished
+							toggleSolve(false);
+						}
+					}
+					blockingAction = 'solving';
+					tlSolve(); // Start the solving process
+
+					////////////////////////////////////////////////////
+					// WORKER FUNCTIONS FOR THE SOLVE FUNCTIONS ABOVE //
+					////////////////////////////////////////////////////
+
+					/**
+					 * Function to solve an indivdual tile in the top left section of the board avoiding the two right columns and 2 bottom rows.
+					 * @param	tileId 		The id of the tile to be solved. Not to be confused with it's current gridIndex
+					 * @param	callback	Function to be called once the tile is in its solved position
+					 */
+					function singleTileSolver(tileId, callback) {
+						var targetIndex = tileId; // Simple because tile 1 is solved when at index 1, tile 2 at index 2, etc...
+						function solveTile() {
+							solvedList[targetIndex] = true; // Ideally an object or functin for managing the solvedList should be written. As long as I'm careful, this can be managed.
+							callback();
+						}
+						moveTile(grid.indexOf(tileId), targetIndex, solvedList, solveTile);
+					}
+
+					/**
+					 * Function to move whatever tile exists at a grid index to another grid index while avoiding a list of indexes.
+					 * @param	tileIndex 			The index in the grid that the tile to be moved exists at
+					 * @param 	targetIndex 		The index in the grid the tile is to be moved to.
+					 * @param	passedAvoidList	A list of true false values the same length as the grid. Any true indexes are to be avoided
+					 * @param	callback				A callback to be called when the moveTile animation completes. Relies on animatePath
+					 */
+					function moveTile(tileIndex, targetIndex, passedAvoidList, callback) {
+						var avoidList = passedAvoidList.concat();
+						var tilePath = getSafePath(tileIndex, targetIndex, avoidList); // The path the tile at tileIndex will step along to get to its target
+						var emptyPath;
+						var emptyIndex = grid.indexOf(-1);
+						// Move the empty tile to the space on the path in front of the tile to be solved
+						function moveEmptyToStep() {
+							var lastIndex;
+							avoidList[tileIndex] = true; // Make sure the tile isn't moved in getting there
+							emptyPath = getSafePath(emptyIndex, tilePath[0], avoidList);
+							lastIndex = emptyPath.length ? emptyPath[emptyPath.length - 1] : emptyIndex; // Get the last index of the path. This will be the next emptyIndex
+							animatePath(emptyPath, emptyIndex, function() {
+								emptyIndex = lastIndex;
+								pullTile();
+							});
+						}
+						// Pull the tile to be solved into the next step on the tilePath
+						function pullTile() {
+							animatePath([tileIndex], emptyIndex, function() { // Can simply pass a path consisting of the tile index to move it one step
+								emptyIndex = tileIndex; // Once the tile is pulled to the next step, its old index will be that of the empty tile.
+								avoidList[emptyIndex] = false;  // Tile index is no longer populated by the tile. So remove the old index from the avoid list.
+								tileIndex = tilePath.shift(); // Update the tileIndex variable to the correct tile index and shorten the path to the target
+								if (tilePath.length === 0) { // Check if the tile is finished moving and either escape or recurse
+									callback();
+								} else {
+									moveEmptyToStep();
+								}
+							});
+						}
+						if (tilePath.length === 0) { // In case tile is already in the target position.
+							callback();
+						} else {
+							moveEmptyToStep();
+						}
+					}
+
+					/**
+					 * Function to solve a pair of tiles. Pairs are ordered top down for the right and left to right for the bottom columns
+					 * @param 	tileIdPair 	The pair of tiles being solved
+					 * @param 	dir 				Either x or y depending on wether the stack being solved is horizontal or vertical respectively
+					 * @param 	callback		Function to call once the tile pair are solved
+					 */
+					function doubleTileSolver(tileIdPair, dir, callback) {
+						var targetIndexes = tileIdPair;
+						var targetXYs = [getXYFromIndex(targetIndexes[0]), getXYFromIndex(targetIndexes[1])];
+						var tileIndexes = [grid.indexOf(tileIdPair[0]), grid.indexOf(tileIdPair[1])];
+						var tileXYs = [getXYFromIndex(tileIndexes[0]), getXYFromIndex(tileIndexes[1])];
+						var avoidList = solvedList.concat(); // make a copy of the solved list to manipulate in this solver
+
+						var distances = [
+							{x: tileXYs[0].x - targetXYs[0].x, y: tileXYs[0].y - targetXYs[0].y},
+							{x: tileXYs[1].x - targetXYs[1].x, y: tileXYs[1].y - targetXYs[1].y}
+						];
+
+						// Get the index to be used when targeting the first tile to move out of the tileIdPair;
+						var closest = distances[0][dir] <= distances[1][dir] ? 0 : 1;
+						var farthest = 1 - closest; // Set farthest to the opposite value of closest
+						
+						// targetBox is a 2x2 box used to test if the two tiles are initially too close to each other.
+						// If they are too close, movement of one tile is coupled to the movement of the other.
+						var targetBox = targetIndexes.concat([targetIndexes[0] + {x: 1, y: gridSize}[dir], targetIndexes[1] + {x: 1, y: gridSize}[dir]]);
+						// Make a version of targetBox that has the tileIds at each index.
+						var tileBox = [grid[targetBox[0]], grid[targetBox[1]], grid[targetBox[2]], grid[targetBox[3]]];
+						var emptyPath;
+
+						// Check to see if the pair is already solved
+						if (targetIndexes[0] === tileIndexes[0] && targetIndexes[1] === tileIndexes[1]) {
+							step6();
+							return;
+						}
+
+						// Use the targetBox and tileBox to see which step to start at 
+						if (targetBox.indexOf(tileIndexes[0]) > -1 && targetBox.indexOf(tileIndexes[1]) > -1) {
+							//Optimization to avoid redundant steps when the tiles are nearly in the right place already
+							if ((tileBox[1] === -1 && tileBox[0] === tileIdPair[0] && tileBox[3] === tileIdPair[1]) ||
+									(tileBox[1] === tileIdPair[0] && tileBox[3] === tileIdPair[1]) ||
+									(tileBox[0] === -1 && tileBox[1] === tileIdPair[1] && tileBox[2] === tileIdPair[0]) ||
+									(tileBox[0] === tileIdPair[1] && tileBox[2] === tileIdPair[0])) {
+								step5();
+							} else {
+								step1();
+							}
+						} else {
+							step2();
+						}
+
+						//Move a tile out of the way if they are too congested. It allows the subsequent steps to run without error
+						function step1() {
+							moveTile(tileIndexes[farthest], targetIndexes[farthest] + {x: 1, y: gridSize}[dir] * 2, avoidList, function() {
+								tileIndexes = [grid.indexOf(tileIdPair[0]), grid.indexOf(tileIdPair[1])];
+								step2();
+							});
+						}
+
+						// Move the closest tile to the spot next to where it belongs
+						function step2() {
+							moveTile(tileIndexes[closest], targetIndexes[farthest], avoidList, function() {
+								tileIndexes = [grid.indexOf(tileIdPair[0]), grid.indexOf(tileIdPair[1])];
+								step3();
+							});
+						}
+
+						// Move the farthest tile to the spot directly underneath the closest tile
+						function step3() {
+							var stepAvoidList = avoidList.concat();
+							stepAvoidList[tileIndexes[closest]] = true;
+							moveTile(tileIndexes[farthest], targetIndexes[farthest] + {x: 1, y: gridSize}[dir], stepAvoidList, function() {
+								tileIndexes = [grid.indexOf(tileIdPair[0]), grid.indexOf(tileIdPair[1])];
+								step4();
+							});
+						}
+
+						// Move the closest tile to its correct spot
+						function step4() {
+							var stepAvoidList = avoidList.concat();
+							stepAvoidList[tileIndexes[closest]] = true;
+							stepAvoidList[tileIndexes[farthest]] = true;
+							moveTile(tileIndexes[closest], targetIndexes[closest], stepAvoidList, function() {
+								tileIndexes = [grid.indexOf(tileIdPair[0]), grid.indexOf(tileIdPair[1])];
+								step5();
+							});
+						}
+
+						// Move the farthest tile into its correct spot
+						function step5() {
+							moveTile(tileIndexes[farthest], targetIndexes[farthest], avoidList, step6);
+						}
+
+						// The tile pair are now solved. Update the solvedList and run the solved callback
+						function step6() {
+							solvedList[targetIndexes[0]] = true;
+							solvedList[targetIndexes[1]] = true;
+							callback();
+						}
+					}
+
+					/**
+					 * Function to find a safe path between 2 indexes. The avoid list prevents the path crossing tiles that shouldn't be moved
+					 * @param		startIndex	Where the path starts, but not included in the path
+					 * @param		endIndex		Wher the path ends, this index is included in the path
+					 * @param		avoidList		A list long enough for all tile indexes in the grid. The indexes to avoid are set to true
+					 * @returns		An array of indexes describing the path
+					 */
+					function getSafePath(startIndex, endIndex, avoidList) {
+						// Validation to make sure some obvious fail conditions are caught early
+						if (avoidList[endIndex]) {
+							throw('Cannot find path if the target is on the avoidList');
+						}
+						var endXY = getXYFromIndex(endIndex);
+						var paths = []; // An array to hold paths being evaluated
+						var i, l, endTermination;
+						// Create an object that describes a path termination (the end of a path to be evaluated)
+						function createTermination(tileIndex, prevStep) {
+							var r = {}; // New object to be returned from the function
+							r.tileIndex = tileIndex; // The index of the tile that terminates a path
+							r.tileXY = getXYFromIndex(tileIndex); // And it's XY position on the grid
+							if (prevStep !== void 0) { // Is there a previous step in the path passed in?
+								r.prevStep = prevStep;
+								r.path = prevStep.path.concat([tileIndex]); // The path including the new termination tileIndex
+								r.avoidList = prevStep.avoidList.concat(); // A copy of the previous avoid list as each termination needs its own copy
+							} else { // Else this must be the first termination which is also the start of every path.
+								r.path = [tileIndex];
+								r.avoidList = avoidList.concat(); // Copy the avoid list passed to the getSafePath() function
+							}
+							r.avoidList[tileIndex] = true; // Include the terminiation tile in the avoid list to prevent the path crossing itself
+							// Below are two ways to get the destination distance, the first is faster, the second more accurate. Both will work
+							// r.distance = Math.abs(r.tileXY.x - endXY.x) + Math.abs(r.tileXY.y - endXY.y);
+							r.distance = Math.sqrt((r.tileXY.x - endXY.x) * (r.tileXY.x - endXY.x) + (r.tileXY.y - endXY.y) * (r.tileXY.y - endXY.y));
+							return r;
+						}
+						paths.push(createTermination(startIndex)); // Put the initial 'seed' terminiation in.
+						// Given a terminal path step find all the next steps that do not violate the avoid list for that path
+						function getSafeAdjacentIndexes(step) {
+							var adjacents = [];
+							var i, nextXY, nextIndex;
+							for (i = 0; i < 4; i++) { //Create 4 potential next steps using xy values for top, bottom, left and right
+								nextXY = {x: step.tileXY.x + trbl[i].x, y: step.tileXY.y + trbl[i].y};
+								if (nextXY.x >= 0 && nextXY.x < gridSize && nextXY.y >= 0 && nextXY.y < gridSize) { //Make sure it's on the grid
+									nextIndex = nextXY.x + nextXY.y * gridSize;
+									if (!step.avoidList[nextIndex]) { //Check that it's not to be avoided
+										adjacents.push(nextIndex);
+									}
+								}
+							}
+							return adjacents;
+						}
+						// Recursive function to search paths by progressively growing terminal steps on existing terminal steps
+						function nextTerminations() {
+							paths.sort(function(a, b) { // Sort the search paths based on distance of termination from destinatin
+								return a.distance - b.distance;
+							});
+							var source = paths.shift(); // Get the next closest path to be the source of the next iteration
+							if (source.tileIndex === endIndex) { // Check that the destination has been reached, if so escape recursion.
+								return source;
+							}
+							var terminations = getSafeAdjacentIndexes(source); // Branch and grow the source path
+							var i;
+							var l = terminations.length;
+							for (i = 0; i < l; i++) {
+								paths.push(createTermination(terminations[i], source)); // Populate the paths to search
+							}
+							return nextTerminations(); // Recurse
+						}
+						endTermination = nextTerminations(); // Get the result of the recursive search for a path to the destination
+						return endTermination.path.slice(1); // Return the path array after trimming the first item which is the startIndex.
+					}
+
+					/**
+					 * Function to animate the movement of the empty space along a specified path. It is used extensively throughout this code
+					 * @param 	path 		An array of grid Indexes the empty slot will move between
+					 * @param 	emptyIndex	The index of the empty tile to pass on to slideTile()
+					 * @param 	callback 	Once the animation is complete, the callback function is called.
+					 */
+					function animatePath(path, emptyIndex, callback) {
+						if (path.length === 0) {
+							callback();
+							return;
+						}
+						var nextIndex = path.shift();
+						slideTile(nextIndex, emptyIndex, function() {
+							// Recurse until the path is empty.
+							if (path.length > 0) {
+								animatePath(path, nextIndex, callback);
+							} else {
+								callback();
+							}
+						})
+					} 
+				}
+
+				///////////////////
+				// DOM INTERFACE //
+				///////////////////
+
+				//TODO FINISH CODE CLEANUP starting from here.
+
+				/**
+				 * Function to place a tile at a position in the 4x4 grid.
+				 * @param	$tile	jquery tile element 
+				 * @param	x		horizontal position value from 0(left) to 3(right).
+				 * @param	y		vertical position value from 0(top) to 3(bottom).
+				 */
+				function moveTileTo($tile, x, y) {
+					if (x < 0 && x >= gridSize || y < 0 || y >= gridSize) {
+						throw('invalid x or y coordinate. x:' + x + ', y:' + y);
+					}
+					$tile.css('left', (x * tileWithGutter + gutter) + 'em')
+						 .css('top', (y * tileWithGutter + gutter) + 'em');
+				}
+
+				/**
+				 * Function to hilite the board
+				 * @param	hiliteOn	Boolean to state if the board should have the hilite added or removed
+				 */
+				function hiliteBoard(hiliteOn) {
+					if (hiliteOn) {
+						$board.addClass('ordered');
+					} else {
+						$board.removeClass('ordered');
+					}
+				}
+
+				// Stop any randomizing or solving and set the board to be a different grid size.
+				function setGridSize() {
+					blockingAction = undefined;
+					toggleRandomize(false);
+					toggleSolve(false);
+					setupBoard($gridSizeInput.val());
+					$('h1 span').text(gridLength - 1);
+				}
+
+				// Set the animation speeds for randomizing and solving.
+				function setSolveSpeed() {
+					animDelay = $solveSpeedInput.val();
+				}
+				function setRandomSpeed() {
+					randomAnimDelay = $randomSpeedInput.val();
+				}
+
+				//Activate the buttons
+				$randomButton.click(function() {
+					toggleRandomize();
+				});
+				$solveButton.click(function() {
+					toggleSolve();
+				});
+				$optionsButton.click(function() { // Toggle the display of the options panel
+					var $this = $(this);
+					var show = !$this.data('show');
+					$this.data('show', show);
+					if (show) {
+						$('#options').slideDown();
+						$this.addClass('active');
+					} else {
+						$('#options').slideUp();
+						$this.removeClass('active');
+					}
+				});
+				$gridSizeInput.change(function() {
+					setGridSize();
+				})
+				$randomSpeedInput.change(function() {
+					setRandomSpeed();
+				})
+				$solveSpeedInput.change(function() {
+					setSolveSpeed();
+				})
+
+
+				/**
+				 * Function top set up the board. Initial tile positions and any data objects used by random or solve functions
+				 * @param		newSize		A new gridSize for the board. ie If newSize is 4, a 4x4 grid is created
+				 */
+				function setupBoard(newSize) {
+					newSize = Math.max(2, newSize); // Gridsizes less than 2 are non-sensical. Even 2 is kind of pointless.
+					tileList = []; // Where jquery references to tile dom elements are stored.
+					gridSize = newSize;
+					gridLength = gridSize * gridSize;
+					grid = (function() { //Generate an array that houses the value of the positions in the 4X4 grid
+						var i;
+						var g = [];
+						for (i = 0; i < gridLength; i++) {
+							g[i] = i;
+						}
+						g[gridLength - 1] = -1; //The last slot is given a value of -1 denoting it as the empty slot.
+						return g;
+					})();
+
+					var i, l, tileId, $tile, xy;
+					$board.css('width', (gridSize * tileSize + (gridSize + 1) * gutter) + 'em')
+								.css('height', (gridSize * tileSize + (gridSize + 1) * gutter) + 'em')
+								.empty();
+					for (i = 0, l = gridLength - 1; i < l; i++) {
+						tileId = grid[i];
+						$tile = tileList[i] = $tileTemplate.clone();
+						$tile.text(i + 1);
+						$board.append($tile);
+						(function(i) { // Use an IIFE to lock the value of i for each tile's click event.
+							$tile.mouseover(function(e) {
+								if (blockingAction !== undefined) {
+									return;
+								}
+								blockingAction = 'user';
+								slideTile(grid.indexOf(i), grid.indexOf(-1));
+								blockingAction = undefined;
+								hiliteBoard(areTilesInOrder());
+							})
+							.addClass('animated');
+						})(i);
+						xy = getXYFromIndex(i);
+						moveTileTo($tile, xy.x, xy.y);
+					}
+					hiliteBoard(true);
+				}
+
+				// The value for the initial grid and animation speeds come from the markup.
+				setGridSize();
+				setRandomSpeed();
+				setSolveSpeed();
+				
+			});
+		</script>
+	</head>
+	<body>
+			<h1>Game of <span>15</span> Solver</h1>
+
+			<div id='board'>
+				<div class='tile'>1</div>
+			</div>
+			<br />
+			
+			<input type='button' name='randomize' value='Randomize' />
+			<input type='button' name='solve' value='Solve' />
+			<input type='button' name='options' value='Options' />
+			<br />
+
+			<div id='options' style='display:none;'>
+				<label for='gridSize'>
+					<input type='tel' id='gridsize' name='gridsize' size='3' maxlength='1' value='4' />
+					Grid Size
+				</label>
+				<label for='randomspeed'>
+					<input type='tel' id='randomspeed' name='randomspeed' size='3' maxlength='3' value='70' />
+					Random Speed
+				</label>
+				<label for='solvespeed'>
+					<input type='tel' name='solvespeed' size='3' maxlength='3' value='170' />
+					Solve Speed
+				</label>
+			</div>
+	</body>
+</html>
